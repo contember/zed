@@ -943,6 +943,7 @@ pub(crate) struct PaintIndex {
     mouse_listeners_index: usize,
     input_handlers_index: usize,
     cursor_styles_index: usize,
+    window_control_hitboxes_index: usize,
     accessed_element_states_index: usize,
     tab_handle_index: usize,
     line_layout_index: LineLayoutIndex,
@@ -3353,6 +3354,7 @@ impl Window {
             mouse_listeners_index: self.next_frame.mouse_listeners.len(),
             input_handlers_index: self.next_frame.input_handlers.len(),
             cursor_styles_index: self.next_frame.cursor_styles.len(),
+            window_control_hitboxes_index: self.next_frame.window_control_hitboxes.len(),
             accessed_element_states_index: self.next_frame.accessed_element_states.len(),
             tab_handle_index: self.next_frame.tab_stops.paint_index(),
             line_layout_index: self.text_system.layout_index(),
@@ -3363,6 +3365,12 @@ impl Window {
         self.next_frame.cursor_styles.extend(
             self.rendered_frame.cursor_styles
                 [range.start.cursor_styles_index..range.end.cursor_styles_index]
+                .iter()
+                .cloned(),
+        );
+        self.next_frame.window_control_hitboxes.extend(
+            self.rendered_frame.window_control_hitboxes[range.start.window_control_hitboxes_index
+                ..range.end.window_control_hitboxes_index]
                 .iter()
                 .cloned(),
         );
@@ -6808,5 +6816,56 @@ mod tests {
             })
             .unwrap();
         assert_eq!(b_focus_count.get(), 1);
+    }
+
+    struct ControlBar;
+
+    impl Render for ControlBar {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .size_full()
+                .window_control_area(crate::WindowControlArea::Drag)
+        }
+    }
+
+    struct ControlBarRoot {
+        bar: crate::Entity<ControlBar>,
+        busy: crate::Entity<EmptyView>,
+    }
+
+    impl Render for ControlBarRoot {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let cached =
+                |view: crate::AnyView| view.cached(crate::StyleRefinement::default().size_full());
+            div()
+                .size_full()
+                .child(cached(self.bar.clone().into()))
+                .child(cached(self.busy.clone().into()))
+        }
+    }
+
+    #[crate::test]
+    fn reused_view_keeps_its_window_control_area(cx: &mut TestAppContext) {
+        let mut busy = None;
+        let window = cx.add_window(|_, cx| {
+            let view = ControlBarRoot {
+                bar: cx.new(|_| ControlBar),
+                busy: cx.new(|_| EmptyView),
+            };
+            busy = Some(view.busy.clone());
+            view
+        });
+        let busy = busy.expect("views created");
+        let control_areas = |cx: &mut TestAppContext| {
+            cx.update_window(window.into(), |_, window, cx| {
+                window.draw(cx).clear(cx);
+                window.rendered_frame.window_control_hitboxes.len()
+            })
+            .unwrap()
+        };
+
+        assert_eq!(control_areas(cx), 1);
+        cx.update(|cx| busy.update(cx, |_, cx| cx.notify()));
+        assert_eq!(control_areas(cx), 1);
     }
 }
