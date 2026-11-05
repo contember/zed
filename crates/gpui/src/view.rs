@@ -287,6 +287,9 @@ struct ViewElementState {
     paint_range: Range<PaintIndex>,
     cache_key: ViewElementCacheKey,
     accessed_entities: FxHashSet<EntityId>,
+    /// The frame the ranges were recorded in. A cached ancestor's reuse carries this state
+    /// forward without updating its ranges, so they are stale after a skipped frame.
+    recorded_in_frame: u64,
 }
 
 struct ViewElementCacheKey {
@@ -389,6 +392,7 @@ impl<V: View> Element for ViewElement<V> {
                             && element_state.cache_key.text_style == text_style
                             && !window.dirty_views.contains(&entity_id)
                             && !window.refreshing
+                            && element_state.recorded_in_frame + 1 == window.frame_number
                         {
                             let prepaint_start = window.prepaint_index();
                             window.reuse_prepaint(element_state.prepaint_range.clone());
@@ -396,11 +400,14 @@ impl<V: View> Element for ViewElement<V> {
                                 .extend_accessed(&element_state.accessed_entities);
                             let prepaint_end = window.prepaint_index();
                             element_state.prepaint_range = prepaint_start..prepaint_end;
+                            element_state.recorded_in_frame = window.frame_number;
 
                             return (None, element_state);
                         }
 
-                        let refreshing = mem::replace(&mut window.refreshing, true);
+                        let refresh_subtree =
+                            window.refreshing || window.notified_views.contains(&entity_id);
+                        let refreshing = mem::replace(&mut window.refreshing, refresh_subtree);
                         let prepaint_start = window.prepaint_index();
                         let (mut element, accessed_entities) = cx.detect_accessed_entities(|cx| {
                             let mut element = self
@@ -421,6 +428,7 @@ impl<V: View> Element for ViewElement<V> {
                             Some(element),
                             ViewElementState {
                                 accessed_entities,
+                                recorded_in_frame: window.frame_number,
                                 prepaint_range: prepaint_start..prepaint_end,
                                 paint_range: PaintIndex::default()..PaintIndex::default(),
                                 cache_key: ViewElementCacheKey {
@@ -468,7 +476,10 @@ impl<V: View> Element for ViewElement<V> {
                             let paint_start = window.paint_index();
 
                             if let Some(element) = element {
-                                let refreshing = mem::replace(&mut window.refreshing, true);
+                                let refresh_subtree = window.refreshing
+                                    || window.notified_views.contains(&entity_id);
+                                let refreshing =
+                                    mem::replace(&mut window.refreshing, refresh_subtree);
                                 element.paint(window, cx);
                                 window.refreshing = refreshing;
                             } else {
