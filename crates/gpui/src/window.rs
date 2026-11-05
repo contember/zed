@@ -1104,8 +1104,8 @@ pub struct Window {
     pub(crate) tooltip_bounds: Option<TooltipBounds>,
     next_frame_callbacks: Rc<RefCell<Vec<FrameCallback>>>,
     pub(crate) dirty_views: FxHashSet<EntityId>,
-    /// Views notified this frame. A view that is dirty only as an ancestor of one of these
-    /// re-renders without invalidating its cached descendants.
+    /// Entities notified since the last draw. Such a view refreshes its subtree; a view that
+    /// is dirty only as an ancestor of one re-renders without invalidating its cached descendants.
     pub(crate) notified_views: FxHashSet<EntityId>,
     /// Number of frames drawn. A cached view's recorded ranges index into the frame it was
     /// drawn in, so they are reusable only by the next frame.
